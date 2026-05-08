@@ -7,7 +7,13 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from config import ConfigError, Settings, load_settings, mask_secret
-from news import Article, fetch_articles, filter_articles_published_within
+from news import (
+    Article,
+    article_duplicate_key,
+    article_published_date,
+    fetch_articles,
+    filter_articles_published_within,
+)
 from storage import SentArticleStore
 from telegram_client import TelegramClient
 
@@ -46,8 +52,10 @@ def run_once(
     *,
     is_first_run: bool,
 ) -> None:
-    sent_links = store.load()
+    sent_state = store.load_state()
     new_sent_links: set[str] = set()
+    candidate_article_keys_by_date: dict[str, set[str]] = {}
+    new_sent_article_keys_by_date: dict[str, set[str]] = {}
     search_time = datetime.now().astimezone()
 
     for keyword in settings.keywords:
@@ -71,13 +79,50 @@ def run_once(
                 keyword,
             )
 
-        seen_links = sent_links | new_sent_links
-        fresh_articles = [
-            article for article in recent_articles if article.link not in seen_links
-        ]
+        seen_links = sent_state.links | new_sent_links
+        fresh_articles: list[Article] = []
+        duplicate_count = 0
+
+        for article in recent_articles:
+            article_key = article_duplicate_key(article)
+            article_date_key = _article_date_key(article, search_time)
+            seen_article_keys = sent_state.keys_for_date(article_date_key) | (
+                candidate_article_keys_by_date.get(article_date_key, set())
+            )
+            is_duplicate_link = article.link in seen_links
+            is_duplicate_title = article_key in seen_article_keys
+            if is_duplicate_link or is_duplicate_title:
+                duplicate_count += 1
+                duplicate_reason = "link" if is_duplicate_link else "title"
+                logger.info(
+                    "Skipped duplicate article by %s for keyword '%s': title='%s', "
+                    "source='%s', link='%s'",
+                    duplicate_reason,
+                    keyword,
+                    article.title,
+                    article.source or "unknown",
+                    article.link,
+                )
+                continue
+
+            fresh_articles.append(article)
+            seen_links.add(article.link)
+            candidate_article_keys_by_date.setdefault(article_date_key, set()).add(article_key)
+
+        if duplicate_count:
+            logger.info(
+                "Skipped %s duplicate article(s) for keyword: %s",
+                duplicate_count,
+                keyword,
+            )
 
         if is_first_run and not settings.send_existing_on_first_run:
             new_sent_links.update(article.link for article in fresh_articles)
+            for article in fresh_articles:
+                article_date_key = _article_date_key(article, search_time)
+                new_sent_article_keys_by_date.setdefault(article_date_key, set()).add(
+                    article_duplicate_key(article)
+                )
             logger.info(
                 "First run: stored %s existing article(s) without sending for keyword: %s",
                 len(fresh_articles),
@@ -88,10 +133,16 @@ def run_once(
         for article in fresh_articles:
             if _send_and_record(article, telegram):
                 new_sent_links.add(article.link)
+                article_date_key = _article_date_key(article, search_time)
+                new_sent_article_keys_by_date.setdefault(article_date_key, set()).add(
+                    article_duplicate_key(article)
+                )
 
-    if new_sent_links:
-        sent_links.update(new_sent_links)
-        store.save(sent_links)
+    if new_sent_links or new_sent_article_keys_by_date:
+        sent_state.links.update(new_sent_links)
+        for date_key, article_keys in new_sent_article_keys_by_date.items():
+            sent_state.keys_for_date(date_key).update(article_keys)
+        store.save_state(sent_state)
 
 
 def run_forever(settings: Settings) -> None:
@@ -116,6 +167,13 @@ def run_forever(settings: Settings) -> None:
 
 def _send_and_record(article: Article, telegram: TelegramClient) -> bool:
     return telegram.send_article(article)
+
+
+def _article_date_key(article: Article, search_time: datetime) -> str:
+    published_date = article_published_date(article, local_tz=search_time.tzinfo)
+    if published_date is None:
+        published_date = search_time.date()
+    return published_date.isoformat()
 
 
 def main() -> int:

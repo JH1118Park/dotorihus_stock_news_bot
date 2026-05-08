@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import re
+import unicodedata
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone, tzinfo
 from email.utils import parsedate_to_datetime
@@ -16,6 +18,8 @@ logger = logging.getLogger("news")
 
 GOOGLE_NEWS_RSS_URL = "https://news.google.com/rss/search"
 RSS_TIMEOUT_SECONDS = 10
+TRAILING_SOURCE_PATTERN = re.compile(r"\s[-–—]\s[^-–—]{1,40}$")
+ARTICLE_KEY_PATTERN = re.compile(r"[^0-9a-z가-힣]+")
 
 
 @dataclass(frozen=True)
@@ -128,6 +132,12 @@ def filter_articles_published_within(
         )
         and oldest_allowed <= published_at.astimezone(now.tzinfo) <= now
     ]
+
+
+def article_duplicate_key(article: Article) -> str:
+    title = TRAILING_SOURCE_PATTERN.sub("", article.title)
+    normalized = unicodedata.normalize("NFKC", title).casefold()
+    return ARTICLE_KEY_PATTERN.sub("", normalized)
 
 
 def article_published_date(

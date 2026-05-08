@@ -59,7 +59,7 @@ def format_article_message(article: Article) -> str:
     source = article.source or "알 수 없음"
     published = format_article_published_time(article)
     return (
-        f"뉴스 [{article.keyword}] {article.title}\n\n"
+        f"[{article.keyword}] {article.title}\n\n"
         f"언론사: {source}\n"
         f"시간: {published}\n\n"
         f"{article.link}"

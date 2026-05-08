@@ -3,6 +3,7 @@ from urllib.parse import parse_qs, urlparse
 
 from news import (
     Article,
+    article_duplicate_key,
     article_published_date,
     build_google_news_rss_url,
     entry_to_article,
@@ -135,3 +136,22 @@ def test_filter_articles_published_within_keeps_only_recent_articles() -> None:
         now=now,
         window=timedelta(hours=1),
     ) == [articles[0], articles[1]]
+
+
+def test_article_duplicate_key_ignores_trailing_source_and_spacing() -> None:
+    nate_article = Article(
+        title="알테오젠, 1분기 매출 716억·영업익 393억 - 네이트",
+        link="https://example.com/nate",
+        published="Fri, 08 May 2026 04:17:00 GMT",
+        source="네이트",
+        keyword="알테오젠",
+    )
+    press_article = Article(
+        title="알테오젠, 1분기 매출 716억·영업익 393억 - PRESS9",
+        link="https://example.com/press9",
+        published="Fri, 08 May 2026 04:24:32 GMT",
+        source="PRESS9",
+        keyword="알테오젠",
+    )
+
+    assert article_duplicate_key(nate_article) == article_duplicate_key(press_article)
