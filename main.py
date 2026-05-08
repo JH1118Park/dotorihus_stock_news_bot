@@ -12,6 +12,7 @@ from news import (
     article_duplicate_key,
     article_published_date,
     fetch_articles,
+    find_similar_duplicate_key,
     filter_articles_published_within,
 )
 from storage import SentArticleStore
@@ -90,18 +91,20 @@ def run_once(
                 candidate_article_keys_by_date.get(article_date_key, set())
             )
             is_duplicate_link = article.link in seen_links
-            is_duplicate_title = article_key in seen_article_keys
+            similar_article_key = find_similar_duplicate_key(article_key, seen_article_keys)
+            is_duplicate_title = similar_article_key is not None
             if is_duplicate_link or is_duplicate_title:
                 duplicate_count += 1
                 duplicate_reason = "link" if is_duplicate_link else "title"
                 logger.info(
                     "Skipped duplicate article by %s for keyword '%s': title='%s', "
-                    "source='%s', link='%s'",
+                    "source='%s', link='%s', duplicate_key='%s'",
                     duplicate_reason,
                     keyword,
                     article.title,
                     article.source or "unknown",
                     article.link,
+                    similar_article_key or article_key,
                 )
                 continue
 

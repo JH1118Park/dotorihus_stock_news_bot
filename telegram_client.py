@@ -51,7 +51,14 @@ class TelegramClient:
             logger.exception("Telegram request failed while sending: %s", article.title)
             return False
 
-        logger.info("Sent article: %s", article.title)
+        logger.info(
+            "Sent article: keyword='%s', title='%s', source='%s', published='%s', link='%s'",
+            article.keyword,
+            article.title,
+            article.source or "unknown",
+            format_article_published_time(article),
+            article.link,
+        )
         return True
 
 

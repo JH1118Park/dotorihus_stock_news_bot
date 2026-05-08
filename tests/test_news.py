@@ -4,11 +4,13 @@ from urllib.parse import parse_qs, urlparse
 from news import (
     Article,
     article_duplicate_key,
+    article_keys_are_similar,
     article_published_date,
     build_google_news_rss_url,
     entry_to_article,
-    filter_articles_published_within,
     filter_articles_by_published_date,
+    filter_articles_published_within,
+    find_similar_duplicate_key,
 )
 
 
@@ -155,3 +157,27 @@ def test_article_duplicate_key_ignores_trailing_source_and_spacing() -> None:
     )
 
     assert article_duplicate_key(nate_article) == article_duplicate_key(press_article)
+
+
+def test_article_keys_are_similar_for_same_earnings_story() -> None:
+    first = article_duplicate_key(
+        Article(
+            title="알테오젠, 1분기 매출 716억·영업이익 393억...기술수출 성과 반영 - PRESS9",
+            link="https://example.com/press9",
+            published="Fri, 08 May 2026 04:17:00 GMT",
+            source="PRESS9",
+            keyword="알테오젠",
+        )
+    )
+    second = article_duplicate_key(
+        Article(
+            title="알테오젠, 1분기 매출 716억·영업이익 393억원 ‘동반 감소’ - 코메디닷컴",
+            link="https://example.com/kormedi",
+            published="Fri, 08 May 2026 05:14:00 GMT",
+            source="코메디닷컴",
+            keyword="알테오젠",
+        )
+    )
+
+    assert article_keys_are_similar(first, second)
+    assert find_similar_duplicate_key(second, {first}) == first

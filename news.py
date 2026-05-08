@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import logging
-import re
 import unicodedata
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone, tzinfo
+from difflib import SequenceMatcher
 from email.utils import parsedate_to_datetime
 from typing import Any
 from urllib.parse import quote_plus
@@ -18,8 +18,8 @@ logger = logging.getLogger("news")
 
 GOOGLE_NEWS_RSS_URL = "https://news.google.com/rss/search"
 RSS_TIMEOUT_SECONDS = 10
-TRAILING_SOURCE_PATTERN = re.compile(r"\s[-–—]\s[^-–—]{1,40}$")
-ARTICLE_KEY_PATTERN = re.compile(r"[^0-9a-z가-힣]+")
+DUPLICATE_TITLE_SIMILARITY_THRESHOLD = 0.68
+TITLE_SOURCE_SEPARATORS = (" - ", " – ", " — ")
 
 
 @dataclass(frozen=True)
@@ -135,9 +135,44 @@ def filter_articles_published_within(
 
 
 def article_duplicate_key(article: Article) -> str:
-    title = TRAILING_SOURCE_PATTERN.sub("", article.title)
+    title = strip_trailing_source(article.title)
     normalized = unicodedata.normalize("NFKC", title).casefold()
-    return ARTICLE_KEY_PATTERN.sub("", normalized)
+    return "".join(character for character in normalized if character.isalnum())
+
+
+def find_similar_duplicate_key(
+    article_key: str,
+    existing_keys: set[str],
+    *,
+    threshold: float = DUPLICATE_TITLE_SIMILARITY_THRESHOLD,
+) -> str | None:
+    for existing_key in existing_keys:
+        if article_keys_are_similar(article_key, existing_key, threshold=threshold):
+            return existing_key
+    return None
+
+
+def article_keys_are_similar(
+    first_key: str,
+    second_key: str,
+    *,
+    threshold: float = DUPLICATE_TITLE_SIMILARITY_THRESHOLD,
+) -> bool:
+    if not first_key or not second_key:
+        return False
+    if first_key == second_key:
+        return True
+
+    similarity = SequenceMatcher(None, first_key, second_key).ratio()
+    return similarity >= threshold
+
+
+def strip_trailing_source(title: str) -> str:
+    for separator in TITLE_SOURCE_SEPARATORS:
+        head, separator_found, tail = title.rpartition(separator)
+        if separator_found and 0 < len(tail.strip()) <= 40:
+            return head.strip()
+    return title.strip()
 
 
 def article_published_date(
