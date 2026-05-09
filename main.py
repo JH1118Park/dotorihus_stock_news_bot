@@ -59,6 +59,10 @@ def run_once(
     new_sent_article_keys_by_date: dict[str, set[str]] = {}
     articles_to_send: list[Article] = []
     search_time = datetime.now().astimezone()
+    digest_mode = is_nightly_digest_collection_time(settings, search_time)
+
+    if flush_pending_digest_if_due(settings, sent_state, store, telegram, search_time):
+        sent_state = store.load_state()
 
     for keyword in settings.keywords:
         articles = fetch_articles(
@@ -81,7 +85,7 @@ def run_once(
                 keyword,
             )
 
-        seen_links = sent_state.links | new_sent_links
+        seen_links = sent_state.links | _pending_article_links(sent_state) | new_sent_links
         fresh_articles: list[Article] = []
         duplicate_count = 0
 
@@ -90,6 +94,11 @@ def run_once(
             article_date_key = _article_date_key(article, search_time)
             seen_article_keys = sent_state.keys_for_date(article_date_key) | (
                 candidate_article_keys_by_date.get(article_date_key, set())
+            )
+            seen_article_keys |= _pending_article_keys_for_date(
+                sent_state,
+                article_date_key,
+                search_time,
             )
             is_duplicate_link = article.link in seen_links
             similar_article_key = find_similar_duplicate_key(article_key, seen_article_keys)
@@ -134,6 +143,20 @@ def run_once(
             )
             continue
 
+        if digest_mode:
+            sent_state.pending_articles.extend(_article_to_stored(article) for article in fresh_articles)
+            for article in fresh_articles:
+                article_date_key = _article_date_key(article, search_time)
+                candidate_article_keys_by_date.setdefault(article_date_key, set()).add(
+                    article_duplicate_key(article)
+                )
+            logger.info(
+                "Nightly digest: queued %s article(s) without sending for keyword: %s",
+                len(fresh_articles),
+                keyword,
+            )
+            continue
+
         articles_to_send.extend(fresh_articles)
 
     if articles_to_send:
@@ -154,6 +177,8 @@ def run_once(
         sent_state.links.update(new_sent_links)
         for date_key, article_keys in new_sent_article_keys_by_date.items():
             sent_state.keys_for_date(date_key).update(article_keys)
+        store.save_state(sent_state)
+    elif digest_mode:
         store.save_state(sent_state)
 
 
@@ -182,6 +207,92 @@ def _article_date_key(article: Article, search_time: datetime) -> str:
     if published_date is None:
         published_date = search_time.date()
     return published_date.isoformat()
+
+
+def is_nightly_digest_collection_time(settings: Settings, now: datetime) -> bool:
+    if not settings.nightly_digest_enabled:
+        return False
+
+    start_hour = settings.nightly_digest_start_hour
+    send_hour = settings.nightly_digest_send_hour
+    current_hour = now.hour
+
+    if start_hour == send_hour:
+        return False
+    if start_hour < send_hour:
+        return start_hour <= current_hour < send_hour
+    return current_hour >= start_hour or current_hour < send_hour
+
+
+def flush_pending_digest_if_due(
+    settings: Settings,
+    sent_state,
+    store: SentArticleStore,
+    telegram: TelegramClient,
+    now: datetime,
+) -> bool:
+    if not settings.nightly_digest_enabled:
+        return False
+    if is_nightly_digest_collection_time(settings, now):
+        return False
+    if now.hour < settings.nightly_digest_send_hour:
+        return False
+    if not sent_state.pending_articles:
+        return False
+
+    articles = [_stored_to_article(article) for article in sent_state.pending_articles]
+    logger.info("Sending nightly digest with %s article(s)", len(articles))
+    if not telegram.send_articles(articles):
+        logger.warning(
+            "Keeping %s nightly digest article(s) queued because Telegram send failed",
+            len(articles),
+        )
+        return False
+
+    for article in articles:
+        sent_state.links.add(article.link)
+        sent_state.keys_for_date(_article_date_key(article, now)).add(
+            article_duplicate_key(article)
+        )
+    sent_state.pending_articles = []
+    store.save_state(sent_state)
+    return True
+
+
+def _article_to_stored(article: Article) -> dict[str, str | None]:
+    return {
+        "title": article.title,
+        "link": article.link,
+        "published": article.published,
+        "source": article.source,
+        "keyword": article.keyword,
+    }
+
+
+def _stored_to_article(article: dict[str, str | None]) -> Article:
+    return Article(
+        title=str(article["title"]),
+        link=str(article["link"]),
+        published=article.get("published"),
+        source=article.get("source"),
+        keyword=str(article["keyword"]),
+    )
+
+
+def _pending_article_links(sent_state) -> set[str]:
+    return {article["link"] for article in sent_state.pending_articles}
+
+
+def _pending_article_keys_for_date(
+    sent_state,
+    date_key: str,
+    search_time: datetime,
+) -> set[str]:
+    return {
+        article_duplicate_key(_stored_to_article(article))
+        for article in sent_state.pending_articles
+        if _article_date_key(_stored_to_article(article), search_time) == date_key
+    }
 
 
 def main() -> int:

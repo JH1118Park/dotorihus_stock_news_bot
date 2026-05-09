@@ -33,6 +33,7 @@ def test_save_writes_expected_shape(tmp_path) -> None:
     store.save({"https://example.com/a"})
 
     assert json.loads(path.read_text(encoding="utf-8")) == {
+        "pending_articles": [],
         "sent_article_keys_by_date": {},
         "sent_links": ["https://example.com/a"],
     }
@@ -72,3 +73,33 @@ def test_load_ignores_legacy_global_article_keys(tmp_path) -> None:
 
     assert state.links == {"https://example.com/a"}
     assert state.keys_by_date == {}
+
+
+def test_save_and_load_pending_articles(tmp_path) -> None:
+    path = tmp_path / "sent_articles.json"
+    store = SentArticleStore(path)
+
+    store.save_state(
+        SentArticleState(
+            pending_articles=[
+                {
+                    "title": "Night article",
+                    "link": "https://example.com/night",
+                    "published": None,
+                    "source": "Example",
+                    "keyword": "robotics",
+                }
+            ]
+        )
+    )
+    state = store.load_state()
+
+    assert state.pending_articles == [
+        {
+            "title": "Night article",
+            "link": "https://example.com/night",
+            "published": None,
+            "source": "Example",
+            "keyword": "robotics",
+        }
+    ]

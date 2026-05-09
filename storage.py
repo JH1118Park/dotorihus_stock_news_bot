@@ -3,9 +3,17 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, TypedDict
 
 logger = logging.getLogger("storage")
+
+
+class StoredArticle(TypedDict):
+    title: str
+    link: str
+    published: str | None
+    source: str | None
+    keyword: str
 
 
 class SentArticleState:
@@ -13,6 +21,7 @@ class SentArticleState:
         self,
         links: Iterable[str] | None = None,
         keys_by_date: dict[str, Iterable[str]] | None = None,
+        pending_articles: Iterable[StoredArticle] | None = None,
     ) -> None:
         self.links = set(links or [])
         self.keys_by_date = {
@@ -20,6 +29,7 @@ class SentArticleState:
             for date_key, keys in (keys_by_date or {}).items()
             if date_key
         }
+        self.pending_articles = list(pending_articles or [])
 
     def keys_for_date(self, date_key: str) -> set[str]:
         return self.keys_by_date.setdefault(date_key, set())
@@ -48,11 +58,14 @@ class SentArticleStore:
 
         sent_links = data.get("sent_links", [])
         sent_article_keys_by_date = data.get("sent_article_keys_by_date", {})
+        pending_articles = data.get("pending_articles", [])
         if not isinstance(sent_links, list):
             logger.warning("Invalid sent store format. Starting with an empty store: %s", self.path)
             return SentArticleState()
         if not isinstance(sent_article_keys_by_date, dict):
             sent_article_keys_by_date = {}
+        if not isinstance(pending_articles, list):
+            pending_articles = []
 
         return SentArticleState(
             links={link for link in sent_links if isinstance(link, str) and link},
@@ -63,6 +76,11 @@ class SentArticleStore:
                 for date_key, keys in sent_article_keys_by_date.items()
                 if isinstance(keys, list)
             },
+            pending_articles=[
+                article
+                for article in (_parse_stored_article(value) for value in pending_articles)
+                if article is not None
+            ],
         )
 
     def save(self, sent_links: Iterable[str]) -> None:
@@ -74,6 +92,7 @@ class SentArticleStore:
             date_key: sorted(keys)
             for date_key, keys in sorted(state.keys_by_date.items())
         }
+        pending_articles = _deduplicate_pending_articles(state.pending_articles)
         self.path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
@@ -82,6 +101,7 @@ class SentArticleStore:
                     {
                         "sent_links": unique_links,
                         "sent_article_keys_by_date": unique_keys_by_date,
+                        "pending_articles": pending_articles,
                     },
                     file,
                     ensure_ascii=False,
@@ -92,9 +112,10 @@ class SentArticleStore:
             return
 
         logger.info(
-            "Saved %s sent links and %s sent article keys",
+            "Saved %s sent links, %s sent article keys, and %s pending article(s)",
             len(unique_links),
             sum(len(keys) for keys in unique_keys_by_date.values()),
+            len(pending_articles),
         )
 
     def add(self, links: Iterable[str]) -> set[str]:
@@ -104,3 +125,42 @@ class SentArticleStore:
         self.save_state(state)
         logger.info("Saved %s new sent link(s)", len(state.links) - before_count)
         return state.links
+
+
+def _parse_stored_article(value: object) -> StoredArticle | None:
+    if not isinstance(value, dict):
+        return None
+
+    title = value.get("title")
+    link = value.get("link")
+    keyword = value.get("keyword")
+    if not isinstance(title, str) or not title.strip():
+        return None
+    if not isinstance(link, str) or not link.strip():
+        return None
+    if not isinstance(keyword, str) or not keyword.strip():
+        return None
+
+    published = value.get("published")
+    source = value.get("source")
+    return {
+        "title": title.strip(),
+        "link": link.strip(),
+        "published": published if isinstance(published, str) else None,
+        "source": source if isinstance(source, str) else None,
+        "keyword": keyword.strip(),
+    }
+
+
+def _deduplicate_pending_articles(
+    pending_articles: Iterable[StoredArticle],
+) -> list[StoredArticle]:
+    seen_links: set[str] = set()
+    unique_articles: list[StoredArticle] = []
+    for article in pending_articles:
+        link = article["link"]
+        if link in seen_links:
+            continue
+        seen_links.add(link)
+        unique_articles.append(article)
+    return unique_articles

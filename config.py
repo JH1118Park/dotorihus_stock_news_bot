@@ -27,6 +27,9 @@ class Settings:
     google_news_ceid: str
     sent_store_path: Path
     send_existing_on_first_run: bool
+    nightly_digest_enabled: bool
+    nightly_digest_start_hour: int
+    nightly_digest_send_hour: int
 
 
 def load_settings(env_path: str | Path = ".env") -> Settings:
@@ -49,6 +52,17 @@ def load_settings(env_path: str | Path = ".env") -> Settings:
         sent_store_path=Path(os.getenv("SENT_STORE_PATH", "sent_articles.json")),
         send_existing_on_first_run=_parse_bool(
             os.getenv("SEND_EXISTING_ON_FIRST_RUN", "false")
+        ),
+        nightly_digest_enabled=_parse_bool(
+            os.getenv("NIGHTLY_DIGEST_ENABLED", "true")
+        ),
+        nightly_digest_start_hour=_parse_hour(
+            os.getenv("NIGHTLY_DIGEST_START_HOUR", "22"),
+            "NIGHTLY_DIGEST_START_HOUR",
+        ),
+        nightly_digest_send_hour=_parse_hour(
+            os.getenv("NIGHTLY_DIGEST_SEND_HOUR", "7"),
+            "NIGHTLY_DIGEST_SEND_HOUR",
         ),
     )
 
@@ -90,6 +104,17 @@ def _parse_poll_interval(raw: str) -> int:
 
 def _parse_bool(raw: str) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _parse_hour(raw: str, name: str) -> int:
+    try:
+        hour = int(raw)
+    except ValueError as exc:
+        raise ConfigError(f"{name} must be an integer from 0 to 23.") from exc
+
+    if not 0 <= hour <= 23:
+        raise ConfigError(f"{name} must be an integer from 0 to 23.")
+    return hour
 
 
 def mask_secret(value: str, visible: int = 4) -> str:

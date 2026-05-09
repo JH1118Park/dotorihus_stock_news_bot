@@ -68,9 +68,27 @@ GOOGLE_NEWS_GL=KR
 GOOGLE_NEWS_CEID=KR:ko
 SENT_STORE_PATH=sent_articles.json
 SEND_EXISTING_ON_FIRST_RUN=false
+NIGHTLY_DIGEST_ENABLED=true
+NIGHTLY_DIGEST_START_HOUR=22
+NIGHTLY_DIGEST_SEND_HOUR=7
 ```
 
 `SEND_EXISTING_ON_FIRST_RUN=false`이면 첫 실행 때 이미 RSS에 있는 기사는 저장만 하고 전송하지 않습니다. 이후 새로 발견되는 기사만 전송합니다.
+
+### Nightly digest
+
+By default, articles found from 22:00 until before 07:00 are saved to
+`sent_articles.json` as `pending_articles` instead of being sent immediately.
+At 07:00 or the first polling run after 07:00, the bot sends the queued articles
+as one batch and then marks them as sent.
+
+```env
+NIGHTLY_DIGEST_ENABLED=true
+NIGHTLY_DIGEST_START_HOUR=22
+NIGHTLY_DIGEST_SEND_HOUR=7
+```
+
+Set `NIGHTLY_DIGEST_ENABLED=false` to send articles immediately at all hours.
 
 ## 실행
 
