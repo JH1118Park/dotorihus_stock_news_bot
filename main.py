@@ -57,6 +57,7 @@ def run_once(
     new_sent_links: set[str] = set()
     candidate_article_keys_by_date: dict[str, set[str]] = {}
     new_sent_article_keys_by_date: dict[str, set[str]] = {}
+    articles_to_send: list[Article] = []
     search_time = datetime.now().astimezone()
 
     for keyword in settings.keywords:
@@ -133,13 +134,21 @@ def run_once(
             )
             continue
 
-        for article in fresh_articles:
-            if _send_and_record(article, telegram):
+        articles_to_send.extend(fresh_articles)
+
+    if articles_to_send:
+        if telegram.send_articles(articles_to_send):
+            for article in articles_to_send:
                 new_sent_links.add(article.link)
                 article_date_key = _article_date_key(article, search_time)
                 new_sent_article_keys_by_date.setdefault(article_date_key, set()).add(
                     article_duplicate_key(article)
                 )
+        else:
+            logger.warning(
+                "Skipped saving %s article(s) because Telegram batch send failed",
+                len(articles_to_send),
+            )
 
     if new_sent_links or new_sent_article_keys_by_date:
         sent_state.links.update(new_sent_links)
@@ -166,10 +175,6 @@ def run_forever(settings: Settings) -> None:
             logger.exception("Unexpected error in main loop")
 
         time.sleep(settings.poll_interval_seconds)
-
-
-def _send_and_record(article: Article, telegram: TelegramClient) -> bool:
-    return telegram.send_article(article)
 
 
 def _article_date_key(article: Article, search_time: datetime) -> str:
