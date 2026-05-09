@@ -19,7 +19,7 @@ def test_format_article_published_time_converts_gmt_to_kst() -> None:
     )
 
 
-def test_format_article_message_links_title_and_uses_local_time() -> None:
+def test_format_article_message_links_title_with_time_and_omits_time_line() -> None:
     article = Article(
         title="Hyundai & Atlas article",
         link="https://example.com/a?x=1&y=2",
@@ -31,8 +31,11 @@ def test_format_article_message_links_title_and_uses_local_time() -> None:
     message = format_article_message(article)
 
     assert message.startswith(
-        '<a href="https://example.com/a?x=1&amp;y=2">[Hyundai] Hyundai &amp; Atlas article</a>'
+        '<a href="https://example.com/a?x=1&amp;y=2">[Hyundai]['
     )
-    assert "언론사: Example &lt;News&gt;" in message
+    assert "Hyundai &amp; Atlas article</a>" in message
+    assert "언론사:" not in message
+    assert "\n시간:" not in message
+    assert "\n\n" not in message
     assert "Fri, 08 May 2026 03:33:20 GMT" not in message
     assert "\n\nhttps://example.com/a" not in message

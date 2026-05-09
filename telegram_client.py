@@ -65,22 +65,18 @@ class TelegramClient:
 
 
 def format_article_message(article: Article) -> str:
-    source = escape(article.source or "알 수 없음")
-    published = escape(format_article_published_time(article))
-    title = escape(f"[{article.keyword}] {article.title}")
+    published = format_article_published_time(article, include_timezone=False)
+    title = escape(f"[{article.keyword}][{published}] {article.title}")
     link = escape(article.link, quote=True)
 
-    return (
-        f'<a href="{link}">{title}</a>\n\n'
-        f"언론사: {source}\n"
-        f"시간: {published}"
-    )
+    return f'<a href="{link}">{title}</a>'
 
 
 def format_article_published_time(
     article: Article,
     *,
     local_tz: tzinfo | None = None,
+    include_timezone: bool = True,
 ) -> str:
     published_at = article_published_at(article)
     if published_at is None:
@@ -88,5 +84,9 @@ def format_article_published_time(
 
     target_tz = local_tz or datetime.now().astimezone().tzinfo
     local_published_at = published_at.astimezone(target_tz)
+    formatted = f"{local_published_at:%Y-%m-%d %H:%M:%S}"
+    if not include_timezone:
+        return formatted
+
     timezone_name = local_published_at.tzname() or "local"
-    return f"{local_published_at:%Y-%m-%d %H:%M:%S} {timezone_name}"
+    return f"{formatted} {timezone_name}"
