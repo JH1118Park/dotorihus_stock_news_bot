@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, tzinfo
+from html import escape
 
 import requests
 
@@ -30,6 +31,7 @@ class TelegramClient:
         payload = {
             "chat_id": self.chat_id,
             "text": message,
+            "parse_mode": "HTML",
             "disable_web_page_preview": False,
         }
 
@@ -63,13 +65,15 @@ class TelegramClient:
 
 
 def format_article_message(article: Article) -> str:
-    source = article.source or "알 수 없음"
-    published = format_article_published_time(article)
+    source = escape(article.source or "알 수 없음")
+    published = escape(format_article_published_time(article))
+    title = escape(f"[{article.keyword}] {article.title}")
+    link = escape(article.link, quote=True)
+
     return (
-        f"[{article.keyword}] {article.title}\n\n"
+        f'<a href="{link}">{title}</a>\n\n'
         f"언론사: {source}\n"
-        f"시간: {published}\n\n"
-        f"{article.link}"
+        f"시간: {published}"
     )
 
 
