@@ -76,6 +76,10 @@ def run_once(
             now=search_time,
             window=ARTICLE_LOOKBACK_WINDOW,
         )
+        allowed_articles = filter_articles_by_banned_keywords(
+            recent_articles,
+            settings.banned_keywords,
+        )
         skipped_count = len(articles) - len(recent_articles)
         if skipped_count:
             logger.info(
@@ -84,12 +88,19 @@ def run_once(
                 search_time.isoformat(timespec="seconds"),
                 keyword,
             )
+        banned_count = len(recent_articles) - len(allowed_articles)
+        if banned_count:
+            logger.info(
+                "Skipped %s article(s) matching banned keywords for keyword: %s",
+                banned_count,
+                keyword,
+            )
 
         seen_links = sent_state.links | _pending_article_links(sent_state) | new_sent_links
         fresh_articles: list[Article] = []
         duplicate_count = 0
 
-        for article in recent_articles:
+        for article in allowed_articles:
             article_key = article_duplicate_key(article)
             article_date_key = _article_date_key(article, search_time)
             seen_article_keys = sent_state.keys_for_date(article_date_key) | (
@@ -207,6 +218,54 @@ def _article_date_key(article: Article, search_time: datetime) -> str:
     if published_date is None:
         published_date = search_time.date()
     return published_date.isoformat()
+
+
+def filter_articles_by_banned_keywords(
+    articles: list[Article],
+    banned_keywords: list[str],
+) -> list[Article]:
+    if not banned_keywords:
+        return articles
+
+    normalized_banned_keywords = [
+        banned_keyword.casefold()
+        for banned_keyword in banned_keywords
+        if banned_keyword.strip()
+    ]
+    if not normalized_banned_keywords:
+        return articles
+
+    allowed_articles: list[Article] = []
+    for article in articles:
+        searchable_text = " ".join(
+            value
+            for value in (
+                article.title,
+                article.source or "",
+                article.keyword,
+            )
+            if value
+        ).casefold()
+        matched_keyword = next(
+            (
+                banned_keyword
+                for banned_keyword in normalized_banned_keywords
+                if banned_keyword in searchable_text
+            ),
+            None,
+        )
+        if matched_keyword:
+            logger.info(
+                "Skipped article by banned keyword '%s': title='%s', source='%s', link='%s'",
+                matched_keyword,
+                article.title,
+                article.source or "unknown",
+                article.link,
+            )
+            continue
+        allowed_articles.append(article)
+
+    return allowed_articles
 
 
 def is_nightly_digest_collection_time(settings: Settings, now: datetime) -> bool:

@@ -2,7 +2,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from config import Settings
-from main import is_nightly_digest_collection_time
+from main import filter_articles_by_banned_keywords, is_nightly_digest_collection_time
+from news import Article
 
 
 def _settings(
@@ -15,6 +16,7 @@ def _settings(
         telegram_bot_token="token",
         telegram_chat_id="chat",
         keywords=["robotics"],
+        banned_keywords=[],
         poll_interval_seconds=60,
         google_news_hl="ko",
         google_news_gl="KR",
@@ -49,3 +51,40 @@ def test_nightly_digest_collection_time_can_be_disabled() -> None:
         _settings(enabled=False),
         datetime(2026, 5, 8, 23, 0, tzinfo=timezone.utc),
     )
+
+
+def test_filter_articles_by_banned_keywords_checks_title_source_and_keyword() -> None:
+    articles = [
+        Article(
+            title="로봇 기업 새 공장 착공",
+            link="https://example.com/robot",
+            published=None,
+            source="경제신문",
+            keyword="로봇",
+        ),
+        Article(
+            title="야구단 후원 계약 발표",
+            link="https://example.com/baseball",
+            published=None,
+            source="스포츠신문",
+            keyword="로봇",
+        ),
+        Article(
+            title="기업 실적 발표",
+            link="https://example.com/soccer",
+            published=None,
+            source="축구뉴스",
+            keyword="로봇",
+        ),
+        Article(
+            title="신규 선수 영입",
+            link="https://example.com/basketball",
+            published=None,
+            source="경제신문",
+            keyword="농구",
+        ),
+    ]
+
+    assert filter_articles_by_banned_keywords(articles, ["야구", "축구", "농구"]) == [
+        articles[0]
+    ]

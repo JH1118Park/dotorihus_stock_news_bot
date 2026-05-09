@@ -21,6 +21,7 @@ class Settings:
     telegram_bot_token: str
     telegram_chat_id: str
     keywords: list[str]
+    banned_keywords: list[str]
     poll_interval_seconds: int
     google_news_hl: str
     google_news_gl: str
@@ -38,13 +39,14 @@ def load_settings(env_path: str | Path = ".env") -> Settings:
 
     token = _required_env("TELEGRAM_BOT_TOKEN")
     chat_id = _required_env("TELEGRAM_CHAT_ID")
-    keywords = _parse_keywords(os.getenv("NEWS_KEYWORDS", ""))
+    keywords = _parse_required_keywords(os.getenv("NEWS_KEYWORDS", ""))
     poll_interval = _parse_poll_interval(os.getenv("POLL_INTERVAL_SECONDS", "60"))
 
     settings = Settings(
         telegram_bot_token=token,
         telegram_chat_id=chat_id,
         keywords=keywords,
+        banned_keywords=_parse_optional_keywords(os.getenv("BANNED_KEYWORDS", "")),
         poll_interval_seconds=poll_interval,
         google_news_hl=os.getenv("GOOGLE_NEWS_HL", "ko").strip() or "ko",
         google_news_gl=os.getenv("GOOGLE_NEWS_GL", "KR").strip() or "KR",
@@ -80,10 +82,18 @@ def _required_env(name: str) -> str:
 
 
 def _parse_keywords(raw: str) -> list[str]:
-    keywords = [keyword.strip() for keyword in raw.split(",") if keyword.strip()]
+    return [keyword.strip() for keyword in raw.split(",") if keyword.strip()]
+
+
+def _parse_required_keywords(raw: str) -> list[str]:
+    keywords = _parse_keywords(raw)
     if not keywords:
         raise ConfigError("NEWS_KEYWORDS must contain at least one keyword.")
     return keywords
+
+
+def _parse_optional_keywords(raw: str) -> list[str]:
+    return _parse_keywords(raw)
 
 
 def _parse_poll_interval(raw: str) -> int:

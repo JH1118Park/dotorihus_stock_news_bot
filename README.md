@@ -62,6 +62,7 @@ https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/getUpdates
 TELEGRAM_BOT_TOKEN=123456789:replace_with_your_token
 TELEGRAM_CHAT_ID=123456789
 NEWS_KEYWORDS=두산로보틱스,레인보우로보틱스
+BANNED_KEYWORDS=야구,축구,농구
 POLL_INTERVAL_SECONDS=60
 GOOGLE_NEWS_HL=ko
 GOOGLE_NEWS_GL=KR
@@ -74,6 +75,9 @@ NIGHTLY_DIGEST_SEND_HOUR=7
 ```
 
 `SEND_EXISTING_ON_FIRST_RUN=false`이면 첫 실행 때 이미 RSS에 있는 기사는 저장만 하고 전송하지 않습니다. 이후 새로 발견되는 기사만 전송합니다.
+
+`BANNED_KEYWORDS` is optional. Articles are skipped when any banned keyword is
+found in the article title, source, or matched search keyword.
 
 ### Nightly digest
 
