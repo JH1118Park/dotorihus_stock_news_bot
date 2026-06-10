@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 logger = logging.getLogger("config")
 
 MIN_POLL_INTERVAL_SECONDS = 60
+MIN_ARTICLE_BATCH_SEND_THRESHOLD = 1
 
 
 class ConfigError(ValueError):
@@ -23,6 +24,7 @@ class Settings:
     keywords: list[str]
     banned_keywords: list[str]
     poll_interval_seconds: int
+    article_batch_send_threshold: int
     google_news_hl: str
     google_news_gl: str
     google_news_ceid: str
@@ -48,6 +50,9 @@ def load_settings(env_path: str | Path = ".env") -> Settings:
         keywords=keywords,
         banned_keywords=_parse_optional_keywords(os.getenv("BANNED_KEYWORDS", "")),
         poll_interval_seconds=poll_interval,
+        article_batch_send_threshold=_parse_article_batch_send_threshold(
+            os.getenv("ARTICLE_BATCH_SEND_THRESHOLD", "10")
+        ),
         google_news_hl=os.getenv("GOOGLE_NEWS_HL", "ko").strip() or "ko",
         google_news_gl=os.getenv("GOOGLE_NEWS_GL", "KR").strip() or "KR",
         google_news_ceid=os.getenv("GOOGLE_NEWS_CEID", "KR:ko").strip() or "KR:ko",
@@ -110,6 +115,22 @@ def _parse_poll_interval(raw: str) -> int:
         )
         return MIN_POLL_INTERVAL_SECONDS
     return interval
+
+
+def _parse_article_batch_send_threshold(raw: str) -> int:
+    try:
+        threshold = int(raw)
+    except ValueError as exc:
+        raise ConfigError("ARTICLE_BATCH_SEND_THRESHOLD must be an integer.") from exc
+
+    if threshold < MIN_ARTICLE_BATCH_SEND_THRESHOLD:
+        logger.warning(
+            "ARTICLE_BATCH_SEND_THRESHOLD=%s is too small. Using minimum %s.",
+            threshold,
+            MIN_ARTICLE_BATCH_SEND_THRESHOLD,
+        )
+        return MIN_ARTICLE_BATCH_SEND_THRESHOLD
+    return threshold
 
 
 def _parse_bool(raw: str) -> bool:

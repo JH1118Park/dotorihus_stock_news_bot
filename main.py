@@ -54,10 +54,7 @@ def run_once(
     is_first_run: bool,
 ) -> None:
     sent_state = store.load_state()
-    new_sent_links: set[str] = set()
     candidate_article_keys_by_date: dict[str, set[str]] = {}
-    new_sent_article_keys_by_date: dict[str, set[str]] = {}
-    articles_to_send: list[Article] = []
     search_time = datetime.now().astimezone()
     digest_mode = is_nightly_digest_collection_time(settings, search_time)
 
@@ -96,7 +93,7 @@ def run_once(
                 keyword,
             )
 
-        seen_links = sent_state.links | _pending_article_links(sent_state) | new_sent_links
+        seen_links = sent_state.links | _pending_article_links(sent_state)
         fresh_articles: list[Article] = []
         duplicate_count = 0
 
@@ -141,55 +138,40 @@ def run_once(
             )
 
         if is_first_run and not settings.send_existing_on_first_run:
-            new_sent_links.update(article.link for article in fresh_articles)
-            for article in fresh_articles:
-                article_date_key = _article_date_key(article, search_time)
-                new_sent_article_keys_by_date.setdefault(article_date_key, set()).add(
-                    article_duplicate_key(article)
-                )
             logger.info(
-                "First run: stored %s existing article(s) without sending for keyword: %s",
+                "First run: skipped %s existing article(s) for keyword: %s",
                 len(fresh_articles),
                 keyword,
             )
             continue
 
-        if digest_mode:
-            sent_state.pending_articles.extend(_article_to_stored(article) for article in fresh_articles)
-            for article in fresh_articles:
-                article_date_key = _article_date_key(article, search_time)
-                candidate_article_keys_by_date.setdefault(article_date_key, set()).add(
-                    article_duplicate_key(article)
-                )
+        if fresh_articles:
+            sent_state.pending_articles.extend(
+                _article_to_stored(article) for article in fresh_articles
+            )
             logger.info(
-                "Nightly digest: queued %s article(s) without sending for keyword: %s",
+                "Queued %s article(s) for keyword: %s",
                 len(fresh_articles),
                 keyword,
             )
-            continue
 
-        articles_to_send.extend(fresh_articles)
-
-    if articles_to_send:
-        if telegram.send_articles(articles_to_send):
-            for article in articles_to_send:
-                new_sent_links.add(article.link)
-                article_date_key = _article_date_key(article, search_time)
-                new_sent_article_keys_by_date.setdefault(article_date_key, set()).add(
-                    article_duplicate_key(article)
-                )
-        else:
-            logger.warning(
-                "Skipped saving %s article(s) because Telegram batch send failed",
-                len(articles_to_send),
-            )
-
-    if new_sent_links or new_sent_article_keys_by_date:
-        sent_state.links.update(new_sent_links)
-        for date_key, article_keys in new_sent_article_keys_by_date.items():
-            sent_state.keys_for_date(date_key).update(article_keys)
+    state_changed = bool(sent_state.pending_articles)
+    if state_changed:
         store.save_state(sent_state)
-    elif digest_mode:
+
+    if digest_mode:
+        return
+
+    if flush_pending_articles_if_threshold_reached(
+        settings,
+        sent_state,
+        store,
+        telegram,
+        search_time,
+    ):
+        state_changed = True
+
+    if state_changed and sent_state.pending_articles:
         store.save_state(sent_state)
 
 
@@ -316,6 +298,45 @@ def flush_pending_digest_if_due(
     sent_state.pending_articles = []
     store.save_state(sent_state)
     return True
+
+
+def flush_pending_articles_if_threshold_reached(
+    settings: Settings,
+    sent_state,
+    store: SentArticleStore,
+    telegram: TelegramClient,
+    now: datetime,
+) -> bool:
+    threshold = settings.article_batch_send_threshold
+    if threshold < 1:
+        return False
+
+    sent_any = False
+    while len(sent_state.pending_articles) >= threshold:
+        batch = sent_state.pending_articles[:threshold]
+        articles = [_stored_to_article(article) for article in batch]
+        logger.info(
+            "Sending queued batch of %s article(s) after reaching threshold %s",
+            len(articles),
+            threshold,
+        )
+        if not telegram.send_articles(articles):
+            logger.warning(
+                "Keeping %s pending article(s) queued because Telegram send failed",
+                len(sent_state.pending_articles),
+            )
+            break
+
+        for article in articles:
+            sent_state.links.add(article.link)
+            sent_state.keys_for_date(_article_date_key(article, now)).add(
+                article_duplicate_key(article)
+            )
+        sent_state.pending_articles = sent_state.pending_articles[threshold:]
+        store.save_state(sent_state)
+        sent_any = True
+
+    return sent_any
 
 
 def _article_to_stored(article: Article) -> dict[str, str | None]:

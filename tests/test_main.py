@@ -18,6 +18,7 @@ def _settings(
         keywords=["robotics"],
         banned_keywords=[],
         poll_interval_seconds=60,
+        article_batch_send_threshold=10,
         google_news_hl="ko",
         google_news_gl="KR",
         google_news_ceid="KR:ko",
